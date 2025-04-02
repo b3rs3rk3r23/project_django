@@ -1,0 +1,13 @@
+<!-- templates/html/verify_login.html -->
+<h2>Vérification OTP</h2>
+<p>Un OTP a été envoyé à votre adresse email. Entrez-le ci-dessous :</p>
+<form method="post">
+    {% csrf_token %}
+    <input type="text" name="otp" placeholder="Entrez votre OTP" required>
+    <button type="submit">Vérifier</button>
+</form>
+{% if messages %}
+    {% for message in messages %}
+        <p style="color: red;">{{ message }}</p>
+    {% endfor %}
+{% endif %}
