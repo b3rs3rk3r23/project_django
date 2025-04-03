@@ -9,6 +9,7 @@ import random
 from .models import PreRegistration
 from .forms import VerifyForm,LoginForm
 from django.contrib.auth import login,logout,authenticate
+from django.shortcuts import redirect
 # Create your views here.
 
 def creatingOTP():
@@ -16,6 +17,11 @@ def creatingOTP():
     for i in range(11):
         otp+= f'{random.randint(0,9)}'
     return otp
+
+def root_view(request):
+    if request.user.is_authenticated:
+        return redirect('success')
+    return redirect('login')
 
 def sendEmail(email):
     otp = creatingOTP()
@@ -47,51 +53,8 @@ def createUser(request):
     else:
         return HttpResponseRedirect('/success/')
 
-"""def login_function(request):
-    if not request.user.is_authenticated:
-        if request.method == 'POST':
-            form = LoginForm(request=request,data=request.POST)
-            if form.is_valid():
-                username = form.cleaned_data['username']
-                password = form.cleaned_data['password']
-                usr = authenticate(username=username,password = password)
-                if usr is not None:
-                    login(request,usr)
-                    return HttpResponseRedirect('/success/')
-        else:
-            form = LoginForm()
-        return render(request,'html/login.html',{'form':form})
-    else:
-        return HttpResponseRedirect('/success/')
-"""
-def login_function(request):
-    if not request.user.is_authenticated:
-        if request.method == 'POST':
-            form = LoginForm(request=request, data=request.POST)
-            if form.is_valid():
-                username = form.cleaned_data['username']
-                password = form.cleaned_data['password']
-                
-                # Vérifie d'abord si l'utilisateur existe et que le mot de passe est correct
-                usr = authenticate(username=username, password=password)
-                if usr is not None:
-                    # Génère et envoie un OTP
-                    email = usr.email  # Récupère l'email de l'utilisateur
-                    otp = sendEmail(email)  # Envoie l'OTP par email
-                    
-                    # Stocke l'OTP et l'ID utilisateur dans la session
-                    request.session['login_otp'] = otp
-                    request.session['otp_user_id'] = usr.id
-                    
-                    # Redirige vers la page de vérification OTP
-                    return HttpResponseRedirect('/verify-login/')
-                else:
-                    messages.error(request, "Nom d'utilisateur ou mot de passe incorrect")
-        else:
-            form = LoginForm()
-        return render(request, 'html/login.html', {'form': form})
-    else:
-        return HttpResponseRedirect('/success/')
+
+
 
 def verify_login(request):
     if not request.user.is_authenticated:
@@ -159,12 +122,6 @@ def verifyUser(request):
     else:
         return HttpResponseRedirect('/success/')
 
-"""def success(request):
-    if request.user.is_authenticated:
-        return render(request,'html/success.html')
-    else:
-        return HttpResponseRedirect('/')
-"""
 
 def success(request):
     if request.user.is_authenticated:
@@ -176,9 +133,141 @@ def success(request):
     else:
         return HttpResponseRedirect('/')
 
-def logout_function(request):
+# Dans vos views.py
+
+def login_function(request):
+    # Déconnexion forcée si déjà authentifié
     if request.user.is_authenticated:
         logout(request)
-        return HttpResponseRedirect('/')
+        return HttpResponseRedirect('/login/')
+    
+    if request.method == 'POST':
+        form = LoginForm(request=request, data=request.POST)
+        if form.is_valid():
+            username = form.cleaned_data['username']
+            password = form.cleaned_data['password']
+            
+            usr = authenticate(username=username, password=password)
+            if usr is not None:
+                # Nettoyage complet de la session
+                request.session.flush()
+                
+                # Envoi OTP
+                email = usr.email
+                otp = sendEmail(email)
+                
+                # Stockage temporaire
+                request.session['login_otp'] = otp
+                request.session['otp_user_id'] = usr.id
+                request.session.set_expiry(300)  # 5 minutes pour valider l'OTP
+                
+                return HttpResponseRedirect('/verify-login/')
+            else:
+                messages.error(request, "Identifiants incorrects")
     else:
-        return HttpResponseRedirect('/')
+        form = LoginForm()
+    
+    return render(request, 'html/login.html', {'form': form})
+
+def verify_login(request):
+    if 'otp_user_id' not in request.session:
+        return redirect('login')
+    
+    if request.method == 'POST':
+        entered_otp = request.POST.get('otp', '')
+        saved_otp = request.session.get('login_otp', '')
+        
+        if entered_otp == saved_otp:
+            user = User.objects.get(id=request.session['otp_user_id'])
+            login(request, user)
+            
+            # Nettoyage de la session
+            request.session.pop('login_otp', None)
+            request.session.pop('otp_user_id', None)
+            
+            # Redirection basée sur le groupe
+            if user.groups.filter(name='Medecins').exists():
+                return redirect('medecin')
+            return redirect('patient')
+        else:
+            messages.error(request, "Code OTP incorrect")
+    
+    return render(request, 'html/verify_login.html')
+def logout_function(request):
+    if request.user.is_authenticated:
+        request.session.flush()
+        logout(request)
+    return HttpResponseRedirect('/login/')
+
+    def patient_dashboard(request):
+        if not request.user.is_authenticated:
+            return HttpResponseRedirect('/login/')
+        return render(request, 'html/patient_home.html')
+
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def patient_dashboard(request):
+    """Tableau de bord spécifique pour les patients"""
+    # Vérification supplémentaire si vous voulez forcer le rôle patient
+    if request.user.groups.filter(name='Medecins').exists():
+        return redirect('medecin')
+    
+    context = {
+        'user': request.user,
+        'is_patient': True
+    }
+    return render(request, 'html/patient_home.html', context)
+
+@login_required
+def medecin_dashboard(request):
+    """Tableau de bord spécifique pour les médecins"""
+    if not request.user.groups.filter(name='Medecins').exists():
+        return redirect('patient')
+    
+    context = {
+        'user': request.user,
+        'is_doctor': True
+    }
+    return render(request, 'html/doctor_home.html', context)
+
+# views.py
+from django.contrib.auth import login
+from .models import UserProfile
+
+def patient_signup(request):
+    if request.method == 'POST':
+        form = PatientSignupForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            UserProfile.objects.create(
+                user=user,
+                is_doctor=False,
+                assurance_maladie=form.cleaned_data['assurance_maladie']
+            )
+            login(request, user)
+            return redirect('patient_dashboard')
+    else:
+        form = PatientSignupForm()
+    return render(request, 'registration/patient_signup.html', {'form': form})
+
+# Accès restreint aux admins
+from django.contrib.admin.views.decorators import staff_member_required
+
+@staff_member_required
+def doctor_signup(request):
+    if request.method == 'POST':
+        form = DoctorSignupForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            UserProfile.objects.create(
+                user=user,
+                is_doctor=True,
+                license_number=form.cleaned_data['license_number'],
+                specialite=form.cleaned_data['specialite']
+            )
+            return redirect('admin:index')
+    else:
+        form = DoctorSignupForm()
+    return render(request, 'admin/doctor_signup.html', {'form': form})

@@ -121,3 +121,8 @@ EMAIL_USE_TLS = True
 EMAIL_PORT = 587
 EMAIL_HOST_USER = 'nassymguera23@gmail.com' 
 EMAIL_HOST_PASSWORD = 'rhwo ecjd qvby xspt'
+
+# settings.py
+SESSION_COOKIE_AGE = 1800  # 30 minutes d'inactivité
+SESSION_SAVE_EVERY_REQUEST = True  # Redémarre le timer à chaque requête
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # Session expire quand le navigateur se ferme
